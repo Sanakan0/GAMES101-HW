@@ -4,7 +4,7 @@
 #include "rasterizer.hpp"
 #include "global.hpp"
 #include "Triangle.hpp"
-
+#include "FpsPrinter.hpp"
 constexpr double MY_PI = 3.1415926;
 
 Eigen::Matrix4f get_view_matrix(Eigen::Vector3f eye_pos)
@@ -33,6 +33,14 @@ Eigen::Matrix4f get_projection_matrix(float eye_fov, float aspect_ratio, float z
     // TODO: Copy-paste your implementation from the previous assignment.
     Eigen::Matrix4f projection;
 
+    float half_radialangle = eye_fov*MY_PI/360;
+    float t=zNear*tan(half_radialangle);
+    float r=aspect_ratio*t;
+    projection <<   zNear/r,0,0,0,
+                    0,zNear/t,0,0,
+                    0,0,-(zFar+zNear)/(zFar-zNear),-2*zFar*zNear/(zFar-zNear),
+                    0,0,-1,0;
+    
     return projection;
 }
 
@@ -117,9 +125,12 @@ int main(int argc, const char** argv)
         cv::Mat image(700, 700, CV_32FC3, r.frame_buffer().data());
         image.convertTo(image, CV_8UC3, 1.0f);
         cv::cvtColor(image, image, cv::COLOR_RGB2BGR);
+        PrintFps(image);
         cv::imshow("image", image);
-        key = cv::waitKey(10);
-
+        key = cv::waitKey(1);
+        if (key == 'm') {
+            r.msaa_sw = 1^r.msaa_sw;
+        }
         std::cout << "frame count: " << frame_count++ << '\n';
     }
 

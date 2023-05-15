@@ -14,7 +14,7 @@ rst::pos_buf_id rst::rasterizer::load_positions(const std::vector<Eigen::Vector3
 {
     auto id = get_next_id();
     pos_buf.emplace(id, positions);
-
+    
     return {id};
 }
 
@@ -116,6 +116,146 @@ void rst::rasterizer::rasterize_triangle(const Triangle& t) {
     //z_interpolated *= w_reciprocal;
 
     // TODO : set the current pixel (use the set_pixel function) to the color of the triangle (use getColor function) if it should be painted.
+
+    float maxx = 0;
+    float minx = width;
+    float maxy = 0;
+    float miny = height;
+    for (auto& i:v){
+        auto tmpx = i.x();
+        auto tmpy = i.y();
+        maxx=std::max(maxx,tmpx);
+        minx=std::min(minx,tmpx);
+        maxy=std::max(maxy,tmpy);
+        miny=std::min(miny,tmpy);
+    }
+    maxx = std::min(maxx,(float)width);
+    maxy = std::min(maxy,(float)height);
+    minx = std::max(minx,0.0f);
+    miny = std::max(miny,0.0f);
+
+
+    if (!msaa_sw){
+        for (int ix=minx;ix<=std::min((int)maxx,width-1);++ix){
+            for (int iy=miny;iy<=std::min((int)maxy,height-1);++iy){
+                auto cnter = Vector3f(ix+0.5,iy+0.5,0);
+                Vector3f last(0,0,0);
+                bool flag=0;
+                for (int i=0;i<3;++i){
+                    auto& a = v[i];
+                    auto& b =v[(i+1)%3];
+                    Vector3f vec = (b-a).head<3>();
+                    Vector3f vec2 = cnter-a.head<3>();
+                    vec.z()=0;
+                    vec2.z()=0;
+                    Vector3f tmp = vec.cross(vec2);
+                    if (last.dot( tmp)<0){
+                        flag=1;
+                        break;
+                    }
+                    last = tmp;
+                }
+                if (!flag){
+                    auto[alpha, beta, gamma] = computeBarycentric2D(cnter.x(), cnter.y(), t.v);
+                    float w_reciprocal = 1.0/(alpha / v[0].w() + beta / v[1].w() + gamma / v[2].w());
+                    float z_interpolated = alpha * v[0].z() / v[0].w() + beta * v[1].z() / v[1].w() + gamma * v[2].z() / v[2].w();
+                    z_interpolated *= w_reciprocal;
+                    auto ind = (height-1-iy)*width + ix;
+                    auto hisdepth = depth_buf[ind];
+                    if (z_interpolated<hisdepth){
+                        depth_buf[ind]=z_interpolated;
+                        set_pixel(Vector3f(ix,iy,0), t.getColor());
+                    }
+                }
+            }
+        }
+    }else{
+        //SSAA
+        for (int ix=minx;ix<=std::min((int)maxx,width-1);++ix){
+            for (int iy=miny;iy<=std::min((int)maxy,height-1);++iy){
+                float alphaa=0;
+                for (int k=0;k<4;k++){
+                    static float mvx[]={0.25,0.75,0.25,0.75};
+                    static float mvy[]={0.25,0.25,0.75,0.75};
+                    auto cnter = Vector3f(ix+mvx[k],iy+mvy[k],0);
+                    Vector3f last(0,0,0);
+                    bool flag=0;
+                    for (int i=0;i<3;++i){
+                        auto& a = v[i];
+                        auto& b =v[(i+1)%3];
+                        Vector3f vec = (b-a).head<3>();
+                        Vector3f vec2 = cnter-a.head<3>();
+                        vec.z()=0;
+                        vec2.z()=0;
+                        Vector3f tmp = vec.cross(vec2);
+                        if (last.dot( tmp)<0){
+                            flag=1;
+                            break;
+                        }
+                        last = tmp;
+                    }
+                    if (!flag){
+                        auto[alpha, beta, gamma] = computeBarycentric2D(cnter.x(), cnter.y(), t.v);
+                        float w_reciprocal = 1.0/(alpha / v[0].w() + beta / v[1].w() + gamma / v[2].w());
+                        float z_interpolated = alpha * v[0].z() / v[0].w() + beta * v[1].z() / v[1].w() + gamma * v[2].z() / v[2].w();
+                        z_interpolated *= w_reciprocal;
+                        auto ind = (height-1-iy)*width + ix;
+                        auto hisdepth = depth_buf[ind];
+                        if (z_interpolated<hisdepth){
+                    
+                            alphaa+=0.25;
+                        }
+            
+                        
+                    }
+                }
+                {
+                    auto cnter = Vector3f(ix+0.5,iy+0.5,0);
+                    Vector3f last(0,0,0);
+                    bool flag=0;
+                    for (int i=0;i<3;++i){
+                        auto& a = v[i];
+                        auto& b =v[(i+1)%3];
+                        Vector3f vec = (b-a).head<3>();
+                        Vector3f vec2 = cnter-a.head<3>();
+                        vec.z()=0;
+                        vec2.z()=0;
+                        Vector3f tmp = vec.cross(vec2);
+                        if (last.dot( tmp)<0){
+                            flag=1;
+                            break;
+                        }
+                        last = tmp;
+                    }
+                    if (!flag){
+                        auto[alpha, beta, gamma] = computeBarycentric2D(cnter.x(), cnter.y(), t.v);
+                        float w_reciprocal = 1.0/(alpha / v[0].w() + beta / v[1].w() + gamma / v[2].w());
+                        float z_interpolated = alpha * v[0].z() / v[0].w() + beta * v[1].z() / v[1].w() + gamma * v[2].z() / v[2].w();
+                        z_interpolated *= w_reciprocal;
+                        auto ind = (height-1-iy)*width + ix;
+                        auto hisdepth = depth_buf[ind];
+                        if (z_interpolated<hisdepth){
+                            depth_buf[ind]=z_interpolated;
+                            set_pixel(Vector3f(ix,iy,0), t.getColor());
+                        }
+                        
+                        
+                    }
+                }
+            
+                if (alphaa>0){
+                    Vector3f c(t.getColor().x()*alphaa,t.getColor().y()*alphaa,t.getColor().z()*alphaa);
+                    set_pixel(Vector3f(ix,iy,0), c);
+                }
+                
+            }   
+        }
+        
+    }
+    
+
+
+
 }
 
 void rst::rasterizer::set_model(const Eigen::Matrix4f& m)
