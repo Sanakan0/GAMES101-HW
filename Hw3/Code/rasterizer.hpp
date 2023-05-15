@@ -84,6 +84,8 @@ namespace rst
 
         std::vector<Eigen::Vector3f>& frame_buffer() { return frame_buf; }
 
+
+        bool msaa_sw=false;
     private:
         void draw_line(Eigen::Vector3f begin, Eigen::Vector3f end);
 
