@@ -3,7 +3,8 @@
 #include "Object.hpp"
 
 #include <cstring>
-
+#define epsilon 0.0000001
+#define EPS(x) (x<epsilon)
 bool rayTriangleIntersect(const Vector3f& v0, const Vector3f& v1, const Vector3f& v2, const Vector3f& orig,
                           const Vector3f& dir, float& tnear, float& u, float& v)
 {
@@ -11,6 +12,32 @@ bool rayTriangleIntersect(const Vector3f& v0, const Vector3f& v1, const Vector3f
     // that's specified bt v0, v1 and v2 intersects with the ray (whose
     // origin is *orig* and direction is *dir*)
     // Also don't forget to update tnear, u and v.
+    auto e1 = v1-v0;
+    auto e2 = v2-v0;
+    auto h =crossProduct(dir, e2);
+    auto a=dotProduct(h,e1);
+    if (EPS(a)){ //parallel
+        return false;
+    }
+    auto f= 1.0/a;
+    auto s = orig-v0;  
+    u=f*dotProduct(s,h);
+
+    if (u<0.0||u>1.0)
+        return false;
+    
+    auto q = crossProduct(s, e1);
+    v = f*dotProduct(dir, q);
+    if (v<0.0||u+v>1.0)
+        return false;
+    
+    tnear = f*dotProduct(e2, q);
+
+    if (tnear>epsilon){
+        return true;
+    }
+
+
     return false;
 }
 
