@@ -253,6 +253,9 @@ inline Intersection Triangle::getIntersection(Ray ray)
     t_tmp = dotProduct(e2, qvec) * det_inv;
 
     // TODO find ray triangle intersection
+    // if (t_tmp<-1){
+    //     std::cout << t_tmp << std::endl;
+    // }
     if (t_tmp>=-0.001){
         inter.happened=true;
         auto dir=ray.direction*t_tmp;
