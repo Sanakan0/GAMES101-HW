@@ -15,6 +15,15 @@ using namespace Eigen;
 
 namespace rst
 {
+    struct gbuf{
+        float alpha=0,beta=0,gamma=0;
+        Vector3f color[3];
+        Vector3f normal[3];
+        Vector2f tex_coords[3];
+        Vector3f view_pos[3];
+        Texture* texture=nullptr;
+    };
+
     enum class Buffers
     {
         Color = 1,
@@ -65,7 +74,11 @@ namespace rst
         ind_buf_id load_indices(const std::vector<Eigen::Vector3i>& indices);
         col_buf_id load_colors(const std::vector<Eigen::Vector3f>& colors);
         col_buf_id load_normals(const std::vector<Eigen::Vector3f>& normals);
+        void gbufshadingthread(int st,int ed);
+        void shadingthread(int xmin,int ymin,int xmax,int ymax);
 
+        void multiras();
+        void preparerasthreads();
         void set_model(const Eigen::Matrix4f& m);
         void set_view(const Eigen::Matrix4f& v);
         void set_projection(const Eigen::Matrix4f& p);
@@ -82,15 +95,28 @@ namespace rst
         void draw(pos_buf_id pos_buffer, ind_buf_id ind_buffer, col_buf_id col_buffer, Primitive type);
         void draw(std::vector<Triangle *> &TriangleList);
 
-        std::vector<Eigen::Vector3f>& frame_buffer() { return frame_buf; }
+        void multidraw(std::vector<Triangle *> &TriangleList);
 
-
+        std::vector<Eigen::Vector3f>& frame_buffer() { return frame_buf[backbufidx^1]; }
+        void Swapbuffer(){
+            std::lock_guard<std::mutex> lock(frmmutex);
+            backbufidx^=1;
+        }
+        void Frm2cv(cv::Mat& mat,float& fpsp){
+            std::lock_guard<std::mutex> lock(frmmutex);
+            cv::Mat tmp(700, 700, CV_32FC3, frame_buf[backbufidx^1].data());
+            tmp.copyTo(mat);
+            fpsp=fps;
+        }
+        void InitThreads();
+        int backbufidx=0;
         bool msaa_sw=false;
+        float fps=0;
     private:
         void draw_line(Eigen::Vector3f begin, Eigen::Vector3f end);
 
         void rasterize_triangle(const Triangle& t, const std::array<Eigen::Vector3f, 3>& world_pos);
-
+        void rasterize_t(const Triangle& t, const std::array<Eigen::Vector3f, 3>& world_pos,int minx,int miny,int maxx,int maxy);
         // VERTEX SHADER -> MVP -> Clipping -> /.W -> VIEWPORT -> DRAWLINE/DRAWTRI -> FRAGSHADER
 
     private:
@@ -110,13 +136,23 @@ namespace rst
         std::function<Eigen::Vector3f(fragment_shader_payload)> fragment_shader;
         std::function<Eigen::Vector3f(vertex_shader_payload)> vertex_shader;
 
-        std::vector<Eigen::Vector3f> frame_buf;
-        std::vector<float> depth_buf;
+        std::vector<Eigen::Vector3f> frame_buf[2];
+        std::vector<gbuf> g_buf;
+        std::vector<std::thread> gbufthreads;
+        std::vector<float> depth_buf[2];
         int get_index(int x, int y);
 
         int width, height;
 
         int next_id = 0;
         int get_next_id() { return next_id++; }
+        std::mutex frmmutex;
+        std::mutex cv_m,cv_m2;
+        std::condition_variable cv,cv2;
+        int workercnt=0;
+        int workleft=0;
+
+        std::vector<Triangle> triangle_buf;
+        std::vector<std::array<Eigen::Vector3f, 3>> world_pos_buf;
     };
 }

@@ -53,7 +53,7 @@ void Renderer::ParallelRender(const Scene& scene)
     int m = 0;
 
     // change the spp value to change sample ammount
-    int spp = 256;
+    int spp = 16;
     std::cout << "SPP: " << spp << "\n";
     
     std::vector<std::thread>samplethreads;

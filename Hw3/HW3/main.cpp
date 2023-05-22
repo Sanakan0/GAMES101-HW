@@ -1,13 +1,16 @@
 #include <iostream>
 #include <opencv2/opencv.hpp>
 
+
 #include "global.hpp"
 #include "rasterizer.hpp"
 #include "Triangle.hpp"
 #include "Shader.hpp"
 #include "Texture.hpp"
 #include "OBJ_Loader.h"
-
+#include "FpsPrinter.hpp"
+#include "Profiler.hpp"
+#include <thread>
 Eigen::Matrix4f get_view_matrix(Eigen::Vector3f eye_pos)
 {
     Eigen::Matrix4f view = Eigen::Matrix4f::Identity();
@@ -95,49 +98,61 @@ struct light
     Eigen::Vector3f intensity;
 };
 
+
+float fastpow(float x,int n){
+    float res=1.0f;
+    float tmp=x;
+    while(n){
+        if (n&1) res*=tmp;
+        tmp*=tmp;
+        n>>=1;
+    }
+    return res;
+}
+
 Eigen::Vector3f texture_fragment_shader(const fragment_shader_payload& payload)
 {
-    Eigen::Vector3f return_color = {0, 0, 0};
+    Eigen::Vector3f texture_color= payload.color;
     if (payload.texture)
     {
         // TODO: Get the texture value at the texture coordinates of the current fragment
-        return_color=payload.texture->getColor(payload.tex_coords.x(), payload.tex_coords.y());
+        texture_color=payload.texture->getColor(payload.tex_coords.x(), payload.tex_coords.y());
     }
-    Eigen::Vector3f texture_color;
-    texture_color << return_color.x(), return_color.y(), return_color.z();
+    
+    
 
-    Eigen::Vector3f ka = Eigen::Vector3f(0.005, 0.005, 0.005);
+    const static Eigen::Vector3f ka = Eigen::Vector3f(0.005, 0.005, 0.005);
     Eigen::Vector3f kd = texture_color / 255.f;
-    Eigen::Vector3f ks = Eigen::Vector3f(0.7937, 0.7937, 0.7937);
+    const static Eigen::Vector3f ks = Eigen::Vector3f(0.7937, 0.7937, 0.7937);
 
-    auto l1 = light{{20, 20, 20}, {500, 500, 500}};
-    auto l2 = light{{-20, 20, 0}, {500, 500, 500}};
+    const static auto l1 = light{{20, 20, 20}, {500, 500, 500}};
+    const static auto l2 = light{{-20, 20, 0}, {500, 500, 500}};
 
-    std::vector<light> lights = {l1, l2};
-    Eigen::Vector3f amb_light_intensity{10, 10, 10};
-    Eigen::Vector3f eye_pos{0, 0, 10};
+    const static std::vector<light> lights = {l1, l2};
+    const static Eigen::Vector3f amb_light_intensity{10, 10, 10};
+    const static Eigen::Vector3f eye_pos{0, 0, 10};
 
-    float p = 150;
+    const static float p = 150;
 
     Eigen::Vector3f color = texture_color;
     Eigen::Vector3f point = payload.view_pos;
     Eigen::Vector3f normal = payload.normal;
 
     Eigen::Vector3f result_color = {0, 0, 0};
-
+    auto ambient =  ka.cwiseProduct(amb_light_intensity);
     for (auto& light : lights)
     {
         // TODO: For each light source in the code, calculate what the *ambient*, *diffuse*, and *specular* 
         // components are. Then, accumulate that result on the *result_color* object.
                 // TODO: For each light source in the code, calculate what the *ambient*, *diffuse*, and *specular* 
         // components are. Then, accumulate that result on the *result_color* object.
-        auto ambient =  ka.cwiseProduct(amb_light_intensity);
+        
         float r = (point-light.position).norm();
         auto ldir = (light.position-point).normalized();
         auto I =light.intensity/(r*r);
         auto diffuse = kd.cwiseProduct(I*std::max(0.0f,normal.dot(ldir)));
         auto h = ((-point).normalized()+ldir).normalized();
-        auto specular = ks.cwiseProduct(I*std::pow(std::max(0.0f,normal.dot(h)),p));
+        auto specular = ks.cwiseProduct(I*fastpow(std::max(0.0f,normal.dot(h)),p));
         result_color=result_color+ambient+diffuse+specular;   
 
     }
@@ -145,36 +160,47 @@ Eigen::Vector3f texture_fragment_shader(const fragment_shader_payload& payload)
     return result_color * 255.f;
 }
 
+
 Eigen::Vector3f phong_fragment_shader(const fragment_shader_payload& payload)
 {
-    Eigen::Vector3f ka = Eigen::Vector3f(0.005, 0.005, 0.005);
+    //return {0,0,0};
+    //SPY("PhongShader");
+    const static Eigen::Vector3f ka = Eigen::Vector3f(0.005, 0.005, 0.005);
     Eigen::Vector3f kd = payload.color;
-    Eigen::Vector3f ks = Eigen::Vector3f(0.7937, 0.7937, 0.7937);
+    const static Eigen::Vector3f ks = Eigen::Vector3f(0.7937, 0.7937, 0.7937);
 
-    auto l1 = light{{20, 20, 20}, {500, 500, 500}};
-    auto l2 = light{{-20, 20, 0}, {500, 500, 500}};
+    const static auto l1 = light{{20, 20, 20}, {500, 500, 500}};
+    const static auto l2 = light{{-20, 20, 0}, {500, 500, 500}};
 
-    std::vector<light> lights = {l1, l2};
-    Eigen::Vector3f amb_light_intensity{10, 10, 10};
-    Eigen::Vector3f eye_pos{0, 0, 10};
+    const static std::vector<light> lights = {l1, l2};
+    const static Eigen::Vector3f amb_light_intensity{10, 10, 10};
+    const static Eigen::Vector3f eye_pos{0, 0, 10};
 
-    float p = 150;
-
-    Eigen::Vector3f color = payload.color;
-    Eigen::Vector3f point = payload.view_pos;
-    Eigen::Vector3f normal = payload.normal;
-    Eigen::Vector3f result_color = {0, 0, 0};
+    const static float p = 150;
+    Vector3f color,point,normal,result_color;
+    color = payload.color;
+    point = payload.view_pos;
+    normal = payload.normal;
+    result_color = {0, 0, 0};
+    //return {1,1,1};
+    Vector3f ldir,I,diffuse,h,specular,ambient;
+    ambient =  ka.cwiseProduct(amb_light_intensity);
+    auto np = (-point).normalized();
+    //return {0,0,0};
     for (auto& light : lights)
     {
         // TODO: For each light source in the code, calculate what the *ambient*, *diffuse*, and *specular* 
         // components are. Then, accumulate that result on the *result_color* object.
-        auto ambient =  ka.cwiseProduct(amb_light_intensity);
-        float r = (point-light.position).norm();
-        auto ldir = (light.position-point).normalized();
-        auto I =light.intensity/(r*r);
-        auto diffuse = kd.cwiseProduct(I*std::max(0.0f,normal.dot(ldir)));
-        auto h = ((-point).normalized()+ldir).normalized();
-        auto specular = ks.cwiseProduct(I*std::pow(std::max(0.0f,normal.dot(h)),p));
+        
+        auto tmpvec = light.position-point;
+        ldir = tmpvec.normalized();
+        float r = tmpvec.x()/ldir.x();
+        I =light.intensity/(r*r);
+        diffuse = kd.cwiseProduct(I*std::max(0.0f,normal.dot(ldir)));
+        h = (np+ldir).normalized();
+        auto tmpdot=std::max(0.0f,normal.dot(h));
+        auto tmps=tmpdot>0.94f?fastpow(tmpdot,p):0.0f;
+        specular = ks.cwiseProduct(I*tmps);
         result_color=result_color+ambient+diffuse+specular;        
     }
 
@@ -321,10 +347,7 @@ Eigen::Vector3f bump_fragment_shader(const fragment_shader_payload& payload)
 
     return result_color * 255.f;
 }
-
-int main(int argc, const char** argv)
-{
-    std::vector<Triangle*> TriangleList;
+ std::vector<Triangle*> TriangleList;
 
     float angle = 140.0;
     bool command_line = false;
@@ -335,6 +358,104 @@ int main(int argc, const char** argv)
 
     // Load .obj File
     bool loadout = Loader.LoadFile("../models/spot/spot_triangulated_good.obj");
+    rst::rasterizer r(700, 700);
+    Quaternionf cam_quat(1,0,0,0);
+    Eigen::Vector3f eye_pos = {0,0,10};
+    int key = 0;
+
+
+void RenderThread(){
+    while(1)
+    {
+        {    
+            SPY("RenderLoop");
+            r.clear(rst::Buffers::Color | rst::Buffers::Depth);
+            auto halfa = angle * MY_PI / 360.f;
+            auto cosah = cos(halfa);
+            auto sinah = sin(halfa);
+            auto quata = Quaternionf(cosah,0,sinah,0);
+            auto quatb = Quaternionf(cosah,0,-sinah,0);
+            static Matrix4f m1,mview;
+            m1.setIdentity();
+            m1.block<3,3>(0,0) = 2.5*quata.toRotationMatrix();
+            m1.block<3,1>(0,3) = Vector3f(-2,0,0);
+            r.set_model(m1);
+            mview.setIdentity();
+            auto tmpconj = cam_quat.conjugate();
+            mview.block<3,3>(0,0) =tmpconj.toRotationMatrix();
+            mview.block<3,1>(0,3) = tmpconj*-(cam_quat*eye_pos);
+            r.set_view(mview);
+            r.set_projection(get_projection_matrix(45.0, 1, 0.1, 50));
+            
+            //r.draw(pos_id, ind_id, col_id, rst::Primitive::Triangle);
+            // r.draw(TriangleList);
+            r.multidraw(TriangleList);
+            m1.setIdentity();
+            m1.block<3,3>(0,0) = 2.5*quatb.toRotationMatrix();
+            m1.block<3,1>(0,3) = Vector3f(2,0,0);
+            r.set_model(m1);
+            r.multidraw(TriangleList);
+            // r.draw(TriangleList);
+            {
+                SPY("Rasterization");
+                r.multiras();
+            }
+            
+            
+            
+            r.Swapbuffer();
+        }
+        Profiler::Update();
+        r.fps=Profiler::Frm_cnter_/Profiler::timer_["RenderLoop"];
+        
+        Profiler::PrintInfo();
+    }
+}
+
+void CVshowthread(){
+    while(1)
+    {
+            //SPY("CVLOOP");
+           
+            cv::Mat image;
+            float fps;
+            r.Frm2cv(image,fps);
+            image.convertTo(image, CV_8UC3, 1.0f);
+            cv::cvtColor(image, image, cv::COLOR_RGB2BGR);
+            static std::stringstream ss;
+            ss.str("");
+            ss<<"fps: "<<fps;
+            auto txt = ss.str();
+            cv::putText(image, txt, cv::Point2f(50,50), cv::FONT_HERSHEY_DUPLEX, 1.0, CV_RGB(255, 122, 22),2);
+            cv::imshow("image", image);
+            //cv::imwrite(filename, image);
+            
+            {
+                //SPY("CVwaitkey cost");
+                key = cv::waitKey(1);
+
+                if (key == 'a' )
+                {
+                    angle -= 0.5;
+                }
+                else if (key == 'd')
+                {
+                    angle += 0.5;
+                }
+                else if(key=='q'){
+                    
+                    cam_quat*=Quaternionf(cos(0.01),0,sin(0.01),0);
+                }else if(key=='e'){
+                    cam_quat*=Quaternionf(cos(-0.01),0,sin(-0.01),0);
+                }
+            }
+        }
+}
+
+
+int main(int argc, const char** argv)
+{
+   
     for(auto mesh:Loader.LoadedMeshes)
     {
         for(int i=0;i<mesh.Vertices.size();i+=3)
@@ -350,7 +471,7 @@ int main(int argc, const char** argv)
         }
     }
 
-    rst::rasterizer r(700, 700);
+    
 
     auto texture_path = "hmap.jpg";
     r.set_texture(Texture(obj_path + texture_path));
@@ -391,58 +512,106 @@ int main(int argc, const char** argv)
         }
     }
 
-    Eigen::Vector3f eye_pos = {0,0,10};
+    
 
     r.set_vertex_shader(vertex_shader);
     r.set_fragment_shader(active_shader);
-
-    int key = 0;
+    r.preparerasthreads();
+    
     int frame_count = 0;
 
-    if (command_line)
-    {
-        r.clear(rst::Buffers::Color | rst::Buffers::Depth);
-        r.set_model(get_model_matrix(angle));
-        r.set_view(get_view_matrix(eye_pos));
-        r.set_projection(get_projection_matrix(45.0, 1, 0.1, 50));
+    // if (command_line)
+    // {
+    //     r.clear(rst::Buffers::Color | rst::Buffers::Depth);
+    //     r.set_model(get_model_matrix(angle));
+    //     r.set_view(get_view_matrix(eye_pos));
+    //     r.set_projection(get_projection_matrix(45.0, 1, 0.1, 50));
 
-        r.draw(TriangleList);
-        cv::Mat image(700, 700, CV_32FC3, r.frame_buffer().data());
-        image.convertTo(image, CV_8UC3, 1.0f);
-        cv::cvtColor(image, image, cv::COLOR_RGB2BGR);
+    //     r.draw(TriangleList);
+    //     cv::Mat image(700, 700, CV_32FC3, r.frame_buffer().data());
+    //     image.convertTo(image, CV_8UC3, 1.0f);
+    //     cv::cvtColor(image, image, cv::COLOR_RGB2BGR);
 
-        cv::imwrite(filename, image);
+    //     cv::imwrite(filename, image);
 
-        return 0;
-    }
+    //     return 0;
+    // }
+    
+    auto profiler = Profiler();
 
-    while(key != 27)
-    {
-        r.clear(rst::Buffers::Color | rst::Buffers::Depth);
+    std::thread renderloop(RenderThread);
+    std::thread viewloop(CVshowthread);
 
-        r.set_model(get_model_matrix(angle));
-        r.set_view(get_view_matrix(eye_pos));
-        r.set_projection(get_projection_matrix(45.0, 1, 0.1, 50));
+    renderloop.join();
+    viewloop.join();
 
-        //r.draw(pos_id, ind_id, col_id, rst::Primitive::Triangle);
-        r.draw(TriangleList);
-        cv::Mat image(700, 700, CV_32FC3, r.frame_buffer().data());
-        image.convertTo(image, CV_8UC3, 1.0f);
-        cv::cvtColor(image, image, cv::COLOR_RGB2BGR);
-
-        cv::imshow("image", image);
-        cv::imwrite(filename, image);
-        key = cv::waitKey(10);
-
-        if (key == 'a' )
-        {
-            angle -= 0.1;
-        }
-        else if (key == 'd')
-        {
-            angle += 0.1;
-        }
-
-    }
     return 0;
+
+    // while(1)
+    // {   
+    //     {
+    //         SPY("RenderLoop");
+    //         r.clear(rst::Buffers::Color | rst::Buffers::Depth);
+    //         auto halfa = angle * MY_PI / 360.f;
+    //         auto cosah = cos(halfa);
+    //         auto sinah = sin(halfa);
+    //         auto quata = Quaternionf(cosah,0,sinah,0);
+    //         auto quatb = Quaternionf(cosah,0,-sinah,0);
+    //         static Matrix4f m1,mview;
+    //         m1.setIdentity();
+    //         m1.block<3,3>(0,0) = 2.5*quata.toRotationMatrix();
+    //         m1.block<3,1>(0,3) = Vector3f(-2,0,0);
+    //         r.set_model(m1);
+    //         mview.setIdentity();
+    //         auto tmpconj = cam_quat.conjugate();
+    //         mview.block<3,3>(0,0) =tmpconj.toRotationMatrix();
+    //         mview.block<3,1>(0,3) = tmpconj*-(cam_quat*eye_pos);
+    //         r.set_view(mview);
+    //         r.set_projection(get_projection_matrix(45.0, 1, 0.1, 50));
+            
+    //         //r.draw(pos_id, ind_id, col_id, rst::Primitive::Triangle);
+    //         r.draw(TriangleList);
+
+    //         m1.setIdentity();
+    //         m1.block<3,3>(0,0) = 2.5*quatb.toRotationMatrix();
+    //         m1.block<3,1>(0,3) = Vector3f(2,0,0);
+    //         r.set_model(m1);
+    //         //r.draw(TriangleList);
+    //     }
+
+
+    //     {
+    //         SPY("CVLOOP");
+    //         cv::Mat image(700, 700, CV_32FC3, r.frame_buffer().data());
+    //         image.convertTo(image, CV_8UC3, 1.0f);
+    //         cv::cvtColor(image, image, cv::COLOR_RGB2BGR);
+    //         PrintFps(image);
+    //         cv::imshow("image", image);
+    //         //cv::imwrite(filename, image);
+            
+    //         {
+    //             SPY("CVwaitkey cost");
+    //             key = cv::waitKey(1);
+
+    //             if (key == 'a' )
+    //             {
+    //                 angle -= 0.5;
+    //             }
+    //             else if (key == 'd')
+    //             {
+    //                 angle += 0.5;
+    //             }
+    //             else if(key=='q'){
+                    
+    //                 cam_quat*=Quaternionf(cos(0.01),0,sin(0.01),0);
+    //             }else if(key=='e'){
+    //                 cam_quat*=Quaternionf(cos(-0.01),0,sin(-0.01),0);
+    //             }
+    //         }
+    //     }
+    //     Profiler::Update();
+    //     Profiler::PrintInfo();
+
+    // }
+    // return 0;
 }
