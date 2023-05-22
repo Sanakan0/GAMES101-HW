@@ -75,7 +75,7 @@ namespace rst
         col_buf_id load_colors(const std::vector<Eigen::Vector3f>& colors);
         col_buf_id load_normals(const std::vector<Eigen::Vector3f>& normals);
         void gbufshadingthread(int st,int ed);
-        void shadingthread(int xmin,int ymin,int xmax,int ymax);
+        void shadingthread( int xmin, int ymin, int xmax, int ymax);
 
         void multiras();
         void preparerasthreads();
@@ -109,7 +109,7 @@ namespace rst
             fpsp=fps;
         }
         void InitThreads();
-        int backbufidx=0;
+        volatile int backbufidx=0;
         bool msaa_sw=false;
         float fps=0;
     private:

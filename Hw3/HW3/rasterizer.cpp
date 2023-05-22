@@ -344,8 +344,9 @@ void rst::rasterizer::shadingthread(int xmin,int ymin,int xmax,int ymax){
 
             cv.wait(lk,[&]{return workercnt;});
             workercnt--;
+            //std::cout << xmin << " " <<ymin << " " <<xmax << " " <<ymax << "\n ";
         }
-
+      
         for (int i=0;i<triangle_buf.size();++i){
             
             rasterize_t(triangle_buf[i], world_pos_buf[i],  xmin, ymin, xmax, ymax);
@@ -353,22 +354,24 @@ void rst::rasterizer::shadingthread(int xmin,int ymin,int xmax,int ymax){
         {
             std::unique_lock<std::mutex> lk(cv_m2);
             workleft--;
+            cv2.wait(lk,[&]{return workleft==0;});
+            //std::cout << workercnt<<" "<<workleft<<std::endl;
         }
-        cv2.notify_one();
+        cv2.notify_all();
     }
 }
 
 
 void rst::rasterizer::preparerasthreads(){
-    int threadscnt=9;
-    auto h=70;
-    for (int i=0;i<height;i+=h){
+    
+    auto h=30;
+    for (int i=0;i<height;i+=h+1){
         gbufthreads.emplace_back(&rst::rasterizer::shadingthread,this,0,i,width,std::min(i+h,height));
     }
 }
 
 void rst::rasterizer::multiras(){
-
+    std::lock_guard<std::mutex> lock(frmmutex);
     {
         std::unique_lock<std::mutex> lk(cv_m);
         workercnt=gbufthreads.size();
@@ -380,7 +383,7 @@ void rst::rasterizer::multiras(){
         std::unique_lock<std::mutex> lk(cv_m2);
         cv2.wait(lk,[&]{return workleft==0;});
     }
-    std::cout << workercnt<<" "<<workleft<<std::endl;
+    //std::cout << workercnt<<" "<<workleft<<std::endl;
 }
 
 
@@ -487,6 +490,14 @@ void rst::rasterizer::rasterize_t(const Triangle& t, const std::array<Eigen::Vec
     minx = std::max(minx,(float)xmin);
     miny = std::max(miny,(float)ymin);
 
+    // for (int ix=xmin;ix<=std::min((int)xmax,width-1);++ix){
+    //         for (int iy=ymin;iy<=std::min((int)ymax,height-1);++iy){
+    //             auto ind = (height-1-iy)*width + ix;
+    //             frame_buf[backbufidx][ind] = {255,0,0};
+    //             //set_pixel({ix,iy}, {255,0,0});
+    //         }
+    // }
+    
     //std::cout <<minx<<" "<<maxx<<std::endl;
     if (1){
         //SPY("pixel");
@@ -558,7 +569,8 @@ void rst::rasterizer::rasterize_t(const Triangle& t, const std::array<Eigen::Vec
                         //Vector3f pixel_color(255,255,255); 
                         //g_buf[ind]=payload;
                         pixel_color= fragment_shader(payload);
-                        set_pixel({ix,iy}, pixel_color);
+                        frame_buf[backbufidx][ind] = pixel_color;
+                        //set_pixel({ix,iy}, pixel_color);
                     }
                 }
             }
