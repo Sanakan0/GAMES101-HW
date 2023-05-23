@@ -24,7 +24,7 @@ public:
 
     int width, height;
 
-    Eigen::Vector3f getColor(float u, float v,bool linear=false)
+    Eigen::Vector3f getColor(float u, float v,bool linear=true)
     {
         if(linear){
             return getColor_linear(u, v);
@@ -42,8 +42,8 @@ public:
         cv::Vec3b color(0,0,0);
         int u_ldpixel = u_img-0.5;
         int v_ldpixel = v_img-0.5;
-        static int mvx[]={0,1,0,1};
-        static int mvy[]={0,0,1,1};
+        const static int mvx[]={0,1,0,1};
+        const static int mvy[]={0,0,1,1};
         bool flg=0;
         for (int i=0;i<4;++i){
             int nu=u_ldpixel+mvx[i];
@@ -56,8 +56,8 @@ public:
             auto vec = cv::Point2f(u_img,v_img)-tmpcnter;
             auto weight = (1.0-abs(vec.x))*(1.0-abs(vec.y));
             //std::cout<< weight << std::endl;
-            color+=cv::Vec3b(1,1,1)*weight;
-            //color+=image_data.at<cv::Vec3b>(nv, nu)*weight;
+            //color+=cv::Vec3b(1,1,1)*weight;
+            color+=image_data.at<cv::Vec3b>(nv, nu)*weight;
         }
         
         if (flg){

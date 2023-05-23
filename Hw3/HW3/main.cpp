@@ -140,6 +140,9 @@ Eigen::Vector3f texture_fragment_shader(const fragment_shader_payload& payload)
 
     Eigen::Vector3f result_color = {0, 0, 0};
     auto ambient =  ka.cwiseProduct(amb_light_intensity);
+    Vector3f ldir,I,diffuse,h,specular;
+    
+    auto np = (-point).normalized();
     for (auto& light : lights)
     {
         // TODO: For each light source in the code, calculate what the *ambient*, *diffuse*, and *specular* 
@@ -147,13 +150,16 @@ Eigen::Vector3f texture_fragment_shader(const fragment_shader_payload& payload)
                 // TODO: For each light source in the code, calculate what the *ambient*, *diffuse*, and *specular* 
         // components are. Then, accumulate that result on the *result_color* object.
         
-        float r = (point-light.position).norm();
-        auto ldir = (light.position-point).normalized();
-        auto I =light.intensity/(r*r);
-        auto diffuse = kd.cwiseProduct(I*std::max(0.0f,normal.dot(ldir)));
-        auto h = ((-point).normalized()+ldir).normalized();
-        auto specular = ks.cwiseProduct(I*fastpow(std::max(0.0f,normal.dot(h)),p));
-        result_color=result_color+ambient+diffuse+specular;   
+        auto tmpvec = light.position-point;
+        ldir = tmpvec.normalized();
+        float r = tmpvec.x()/ldir.x();
+        I =light.intensity/(r*r);
+        diffuse = kd.cwiseProduct(I*std::max(0.0f,normal.dot(ldir)));
+        h = (np+ldir).normalized();
+        auto tmpdot=std::max(0.0f,normal.dot(h));
+        auto tmps=tmpdot>0.94f?fastpow(tmpdot,p):0.0f;
+        specular = ks.cwiseProduct(I*tmps);
+        result_color=result_color+ambient+diffuse+specular; 
 
     }
 
@@ -402,8 +408,10 @@ void RenderThread(){
             }
             
             //std::this_thread::sleep_for(std::chrono::milliseconds(500));
-            
-            r.Swapbuffer();
+            {
+                SPY("SWAP");
+                r.Swapbuffer();
+            }
         }
         Profiler::Update();
         r.fps=Profiler::Frm_cnter_/Profiler::timer_["RenderLoop"];
@@ -427,6 +435,7 @@ void CVshowthread(){
             ss<<"fps: "<<fps;
             auto txt = ss.str();
             cv::putText(image, txt, cv::Point2f(50,50), cv::FONT_HERSHEY_DUPLEX, 1.0, CV_RGB(255, 122, 22),2);
+            Profiler::PrintInfoOnMat(image);
             cv::imshow("image", image);
             //cv::imwrite(filename, image);
             
@@ -436,11 +445,11 @@ void CVshowthread(){
 
                 if (key == 'a' )
                 {
-                    angle -= 0.5;
+                    angle -= 2;
                 }
                 else if (key == 'd')
                 {
-                    angle += 0.5;
+                    angle += 2;
                 }
                 else if(key=='q'){
                     

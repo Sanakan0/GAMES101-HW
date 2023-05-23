@@ -252,7 +252,7 @@ void rst::rasterizer::draw(std::vector<Triangle *> &TriangleList) {
 }
 
 void rst::rasterizer::multidraw(std::vector<Triangle *> &TriangleList) {
-    
+    SPY("Triangle Translation");
     float f1 = (50 - 0.1) / 2.0;
     float f2 = (50 + 0.1) / 2.0;
     Eigen::Matrix4f mv = view * model;
@@ -335,8 +335,12 @@ void rst::rasterizer::multidraw(std::vector<Triangle *> &TriangleList) {
 }
 
 
-void rst::rasterizer::shadingthread(int xmin,int ymin,int xmax,int ymax){
-
+void rst::rasterizer::shadingthread(int xminp,int yminp,int xmaxp,int ymaxp){
+    const int xmin=xminp;
+    const int ymin=yminp;
+    const int xmax=xmaxp;
+    const int ymax=ymaxp;
+    const auto id = std::this_thread::get_id();
     while(1){
         {
             
@@ -344,9 +348,21 @@ void rst::rasterizer::shadingthread(int xmin,int ymin,int xmax,int ymax){
 
             cv.wait(lk,[&]{return workercnt;});
             workercnt--;
-            //std::cout << xmin << " " <<ymin << " " <<xmax << " " <<ymax << "\n ";
+            //std::cout << "fk "<<workercnt <<" "<<id<< "\n ";
         }
-      
+        
+        //clear buf
+        int st = (height-1-std::min(ymax,height-1))*width + xmin;
+        int ed = (height-1-ymin)*width + std::min(xmax,width-1);
+        
+         std::fill(frame_buf[backbufidx].begin()+st, frame_buf[backbufidx].begin()+ed, Eigen::Vector3f{0, 0, 0});
+  
+         std::fill(depth_buf[backbufidx].begin()+st, depth_buf[backbufidx].begin()+ed, std::numeric_limits<float>::infinity());
+    
+
+        ///
+
+
         for (int i=0;i<triangle_buf.size();++i){
             
             rasterize_t(triangle_buf[i], world_pos_buf[i],  xmin, ymin, xmax, ymax);
@@ -354,8 +370,9 @@ void rst::rasterizer::shadingthread(int xmin,int ymin,int xmax,int ymax){
         {
             std::unique_lock<std::mutex> lk(cv_m2);
             workleft--;
-            cv2.wait(lk,[&]{return workleft==0;});
-            //std::cout << workercnt<<" "<<workleft<<std::endl;
+            //std::cout << "fk "<<workercnt<<" "<<workleft<<" "<<id<<std::endl;
+            cv2.wait(lk,[&]{return workleft<=0;});
+            workleft--;
         }
         cv2.notify_all();
     }
@@ -364,16 +381,17 @@ void rst::rasterizer::shadingthread(int xmin,int ymin,int xmax,int ymax){
 
 void rst::rasterizer::preparerasthreads(){
     
-    auto h=30;
+    auto h=20;
     for (int i=0;i<height;i+=h+1){
         gbufthreads.emplace_back(&rst::rasterizer::shadingthread,this,0,i,width,std::min(i+h,height));
     }
 }
 
 void rst::rasterizer::multiras(){
-    std::lock_guard<std::mutex> lock(frmmutex);
+    //std::lock_guard<std::mutex> lock(frmmutex);
     {
         std::unique_lock<std::mutex> lk(cv_m);
+        std::unique_lock<std::mutex> lk2(cv_m2);
         workercnt=gbufthreads.size();
         workleft=workercnt;
     }
@@ -381,7 +399,7 @@ void rst::rasterizer::multiras(){
     
     {
         std::unique_lock<std::mutex> lk(cv_m2);
-        cv2.wait(lk,[&]{return workleft==0;});
+        cv2.wait(lk,[&]{return workleft==-gbufthreads.size();});
     }
     //std::cout << workercnt<<" "<<workleft<<std::endl;
 }
@@ -434,7 +452,7 @@ static Eigen::Vector2f interpolate(float alpha, float beta, float gamma, const E
 
 
 void rst::rasterizer::rasterize_t(const Triangle& t, const std::array<Eigen::Vector3f, 3>& view_pos,int xmin,int ymin,int xmax,int ymax){
-   
+    //SPY("RAST");
     // TODO: From your HW3, get the triangle rasterization code.
     // TODO: Inside your rasterization loop:
     //    * v[i].w() is the vertex view space depth value z.
@@ -813,13 +831,14 @@ void rst::rasterizer::set_projection(const Eigen::Matrix4f& p)
 
 void rst::rasterizer::clear(rst::Buffers buff)
 {
+    SPY("CLEAR");
     if ((buff & rst::Buffers::Color) == rst::Buffers::Color)
     {
-        std::fill(frame_buf[backbufidx].begin(), frame_buf[backbufidx].end(), Eigen::Vector3f{0, 0, 0});
+        //std::fill(frame_buf[backbufidx].begin(), frame_buf[backbufidx].end(), Eigen::Vector3f{0, 0, 0});
     }
     if ((buff & rst::Buffers::Depth) == rst::Buffers::Depth)
     {
-        std::fill(depth_buf[backbufidx].begin(), depth_buf[backbufidx].end(), std::numeric_limits<float>::infinity());
+        //std::fill(depth_buf[backbufidx].begin(), depth_buf[backbufidx].end(), std::numeric_limits<float>::infinity());
     }
     triangle_buf.clear();
     world_pos_buf.clear();

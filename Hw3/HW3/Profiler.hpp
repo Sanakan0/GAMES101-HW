@@ -5,7 +5,7 @@
 #include <memory>
 #include <iostream>
 #include <mutex>
-
+#include <opencv2/opencv.hpp>
 #define SPY(name)\
             std::unique_ptr<ProfilerSpy> profiler_spy_  =\
             Profiler::enable_? std::make_unique<ProfilerSpy>(name):nullptr
@@ -18,6 +18,18 @@ public:
         last_time_ = std::chrono::steady_clock::now();
     }
     static void save(ProfilerSpy& spy);
+    static void PrintInfoOnMat(cv::Mat& canvas){
+        int ypos=50;
+        if (Frm_cnter_==0) return;
+        std::lock_guard<std::mutex> lock(p_mutex_);
+        for (auto& i: timer_){
+            ypos+=40;
+            
+            cv::putText(canvas, i.first +": "+ std::to_string( i.second*1000/Frm_cnter_)+" ms/f", cv::Point2f(50,ypos), cv::FONT_HERSHEY_DUPLEX, 0.7, CV_RGB(255, 122, 22),1);
+        }
+        
+        
+    }
     static void PrintInfo(){
         for (auto& i: timer_){
             printf("%s: %.6f ms/frm | ",i.first.c_str(),i.second*1000/Frm_cnter_ );
@@ -27,7 +39,7 @@ public:
         //     printf("%s: %.6f calls/frm | ",i.first.c_str(),1.0*i.second/Frm_cnter_ );
  
         // }
-        printf("\r");
+        printf("\n");
         if (std::chrono::duration<double>(std::chrono::steady_clock::now()-last_time_).count()>1)
             Clear();
     }
@@ -35,6 +47,7 @@ public:
         Frm_cnter_++;
     }
     static void Clear(){
+        std::lock_guard<std::mutex> lock(p_mutex_);
         timer_.clear();
         cnter_.clear();
         last_time_=std::chrono::steady_clock::now();
