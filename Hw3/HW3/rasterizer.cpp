@@ -251,10 +251,91 @@ void rst::rasterizer::draw(std::vector<Triangle *> &TriangleList) {
     }
 }
 
+
+void rst::rasterizer::UpdateLightPass(){
+    {
+        std::unique_lock<std::mutex> lock(sw_m);
+        if (switchbtn){
+            shadowon^=1;
+            switchbtn=0;
+        }
+    }
+
+    shadow_triangle_buf.clear();
+    shadow_triangle_buf.resize(lights.size());
+
+    for (auto& l:lights){
+        l.mat.setIdentity();
+        auto tmpconj = l.orien.conjugate();
+        l.mat.block<3,3>(0,0) =tmpconj.toRotationMatrix();
+        l.mat.block<3,1>(0,3) = tmpconj*-(l.position);
+        Vector4f view_light(l.position.x(),l.position.y(),l.position.z(),1);
+        view_light = view*view_light;
+        l.pos_in_view=Vector3f(view_light.x(),view_light.y(),view_light.z());
+    }
+}
+
+void rst::rasterizer::AddTriangleForShadow(std::vector<Triangle *> &TriangleList){
+    if (!shadowon) return;
+    SPY("Shadow Triangle Translation");
+    for (int i=0;i<lights.size();++i){
+        Eigen::Matrix4f mvp = lightprojection * lights[i].mat*model;
+        for (const auto& t:TriangleList)
+        {
+
+
+            Eigen::Vector4f v[] = {
+                    mvp * t->v[0],
+                    mvp * t->v[1],
+                    mvp * t->v[2]
+            };
+
+
+            
+
+            //Homogeneous division
+            int cnta=0;
+            int cntb=0;
+            int flg=0;
+            for (auto& vec : v) {
+                vec.x()/=vec.w();
+                vec.y()/=vec.w();
+                vec.z()/=vec.w();
+                if (vec.w()<0.1) flg=1;
+                if (vec.z()<-1) cnta++;
+                if (vec.z()>1) cntb++;
+            }
+            if (cnta==3||cntb==3||flg){ //cull triangles
+                continue;
+            } 
+            //back cull use ndc coord
+            auto veca = (v[1]-v[0]).head<3>();
+            auto vecb = (v[2]-v[0]).head<3>();
+            auto trivec = veca.cross(vecb);
+            if (trivec.z()<0) {
+                continue;
+            }
+
+            
+
+            //Viewport transformation
+            for (auto & vert : v)
+            {
+                vert.x() = 0.5*width*(vert.x()+1.0);
+                vert.y() = 0.5*height*(vert.y()+1.0);
+                vert.z() = vert.z() ;
+            }
+            shadow_triangle_buf[i].push_back({v[0],v[1],v[2]});
+           
+        }
+    }
+}
+
 void rst::rasterizer::multidraw(std::vector<Triangle *> &TriangleList) {
     SPY("Triangle Translation");
     float f1 = (50 - 0.1) / 2.0;
     float f2 = (50 + 0.1) / 2.0;
+    //auto& view = lights[0].mat;
     Eigen::Matrix4f mv = view * model;
     Eigen::Matrix4f mvp = projection * mv;
     for (const auto& t:TriangleList)
@@ -283,12 +364,20 @@ void rst::rasterizer::multidraw(std::vector<Triangle *> &TriangleList) {
         
 
         //Homogeneous division
+        int cnta=0;
+        int cntb=0;
+        int flg=0;
         for (auto& vec : v) {
             vec.x()/=vec.w();
             vec.y()/=vec.w();
             vec.z()/=vec.w();
+            if (vec.w()<0.1) flg=1;
+            if (vec.z()<-1) cnta++;
+            if (vec.z()>1) cntb++;
         }
-
+        if (cnta==3||cntb==3||flg){ //cull triangles
+            continue;
+        } 
         //back cull use ndc coord
         auto veca = (v[1]-v[0]).head<3>();
         auto vecb = (v[2]-v[0]).head<3>();
@@ -329,11 +418,16 @@ void rst::rasterizer::multidraw(std::vector<Triangle *> &TriangleList) {
 
         // Also pass view space vertice position
         triangle_buf.push_back(newtri);
-        world_pos_buf.push_back(viewspace_pos);
+        view_pos_buf.push_back(viewspace_pos);
         //rasterize_triangle(newtri, viewspace_pos);
     }
 }
 
+// void rst::rasterizer::rasterize_task(){
+//     for (int i=0;i<triangle_buf.size();++i){
+//         rasterize_t(triangle_buf[i], view_pos_buf[i],  xmin, ymin, xmax, ymax);
+//     }
+// }
 
 void rst::rasterizer::shadingthread(int xminp,int yminp,int xmaxp,int ymaxp){
     const int xmin=xminp;
@@ -350,23 +444,37 @@ void rst::rasterizer::shadingthread(int xminp,int yminp,int xmaxp,int ymaxp){
             workercnt--;
             //std::cout << "fk "<<workercnt <<" "<<id<< "\n ";
         }
-        
-        //clear buf
+
         int st = (height-1-std::min(ymax,height-1))*width + xmin;
         int ed = (height-1-ymin)*width + std::min(xmax,width-1);
-        
-         std::fill(frame_buf[backbufidx].begin()+st, frame_buf[backbufidx].begin()+ed, Eigen::Vector3f{0, 0, 0});
-  
-         std::fill(depth_buf[backbufidx].begin()+st, depth_buf[backbufidx].begin()+ed, std::numeric_limits<float>::infinity());
-    
-
-        ///
-
-
-        for (int i=0;i<triangle_buf.size();++i){
+        if(cur_light_id==-1){ // shading pass
+            //clear buf
             
-            rasterize_t(triangle_buf[i], world_pos_buf[i],  xmin, ymin, xmax, ymax);
+            
+            std::fill(frame_buf[backbufidx].begin()+st, frame_buf[backbufidx].begin()+ed, Eigen::Vector3f{0, 0, 0});
+    
+            std::fill(depth_buf[backbufidx].begin()+st, depth_buf[backbufidx].begin()+ed, std::numeric_limits<float>::infinity());
+        
+
+            ///
+
+
+            for (int i=0;i<triangle_buf.size();++i){
+                
+                rasterize_t(triangle_buf[i], view_pos_buf[i],  xmin, ymin, xmax, ymax);
+            }
+        
+        }else{//shadowmap pass
+            std::fill(light_depth_buf[cur_light_id].begin()+st, light_depth_buf[cur_light_id].begin()+ed, std::numeric_limits<float>::infinity()); //clear buf
+            for (int i=0;i<shadow_triangle_buf[cur_light_id].size();++i){
+                rasterize_shadowmap(shadow_triangle_buf[cur_light_id][i],  xmin, ymin, xmax, ymax);
+            }
         }
+
+
+
+
+
         {
             std::unique_lock<std::mutex> lk(cv_m2);
             workleft--;
@@ -383,24 +491,43 @@ void rst::rasterizer::preparerasthreads(){
     
     auto h=20;
     for (int i=0;i<height;i+=h+1){
-        gbufthreads.emplace_back(&rst::rasterizer::shadingthread,this,0,i,width,std::min(i+h,height));
+        renderthreads.emplace_back(&rst::rasterizer::shadingthread,this,0,i,width,std::min(i+h,height));
+    }
+}
+
+void rst::rasterizer::StartRenderThreads(){
+    {
+        std::unique_lock<std::mutex> lk(cv_m);
+        std::unique_lock<std::mutex> lk2(cv_m2);
+        workercnt=renderthreads.size();
+        workleft=workercnt;
+    }
+    cv.notify_all();
+}
+
+void rst::rasterizer::WaitRenderThreads(){
+    std::unique_lock<std::mutex> lk(cv_m2);
+    cv2.wait(lk,[&]{return workleft==-renderthreads.size();});
+}
+
+void rst::rasterizer::lightpass(){
+    if (!shadowon) return;
+    //prepare matrix:
+    SPY("LightPass");
+    for (int i=0;i<lights.size();++i){
+        cur_light_id=i;
+        StartRenderThreads();
+        WaitRenderThreads();
     }
 }
 
 void rst::rasterizer::multiras(){
     //std::lock_guard<std::mutex> lock(frmmutex);
-    {
-        std::unique_lock<std::mutex> lk(cv_m);
-        std::unique_lock<std::mutex> lk2(cv_m2);
-        workercnt=gbufthreads.size();
-        workleft=workercnt;
-    }
-    cv.notify_all();
-    
-    {
-        std::unique_lock<std::mutex> lk(cv_m2);
-        cv2.wait(lk,[&]{return workleft==-gbufthreads.size();});
-    }
+    lightpass();
+
+    cur_light_id=-1;
+    StartRenderThreads();
+    WaitRenderThreads();
     //std::cout << workercnt<<" "<<workleft<<std::endl;
 }
 
@@ -448,6 +575,91 @@ static Eigen::Vector2f interpolate(float alpha, float beta, float gamma, const E
     v /= weight;
 
     return Eigen::Vector2f(u, v);
+}
+void rst::rasterizer::rasterize_shadowmap(const std::array<Eigen::Vector4f, 3>& view_pos,int xmin,int ymin,int xmax,int ymax){
+    auto& v=view_pos;
+
+
+
+    float maxx = 0;
+    float minx = width;
+    float maxy = 0;
+    float miny = height;
+    for (auto& i:v){
+        auto tmpx = i.x();
+        auto tmpy = i.y();
+        maxx=std::max(maxx,tmpx);
+        minx=std::min(minx,tmpx);
+        maxy=std::max(maxy,tmpy);
+        miny=std::min(miny,tmpy);
+    }
+    maxx = std::min(maxx,(float)xmax);
+    maxy = std::min(maxy,(float)ymax);
+    minx = std::max(minx,(float)xmin);
+    miny = std::max(miny,(float)ymin);
+
+    // for (int ix=xmin;ix<=std::min((int)xmax,width-1);++ix){
+    //         for (int iy=ymin;iy<=std::min((int)ymax,height-1);++iy){
+    //             auto ind = (height-1-iy)*width + ix;
+    //             frame_buf[backbufidx][ind] = {255,0,0};
+    //             //set_pixel({ix,iy}, {255,0,0});
+    //         }
+    // }
+    
+    //std::cout <<minx<<" "<<maxx<<std::endl;
+    if (1){
+        //SPY("pixel");
+        for (int ix=minx;ix<=std::min((int)maxx,width-1);++ix){
+            for (int iy=miny;iy<=std::min((int)maxy,height-1);++iy){
+                //SPY("pixin");
+                //ProfilerSpy spy("pixin",1);
+                auto cnter = Vector3f(ix+0.5,iy+0.5,0);
+                Vector3f last(0,0,0);
+                bool flag=0;
+                    
+                for (int i=0;i<3;++i){
+                    auto& a = v[i];
+                    auto& b =v[(i+1)%3];
+                    Vector3f vec = (b-a).head<3>();
+                    Vector3f vec2 = cnter-a.head<3>();
+                    vec.z()=0;
+                    vec2.z()=0;
+                    Vector3f tmp = vec.cross(vec2);
+                    if (last.dot( tmp)<0){
+                        flag=1;
+                        break;
+                    }
+                    last = tmp;
+                }
+                
+                
+                if (!flag){
+                    
+                    //SPY("flag");
+                    auto[alpha, beta, gamma] = computeBarycentric2D(cnter.x(), cnter.y(), &v[0]);
+                    alpha/=v[0].w();
+                    beta/=v[1].w();
+                    gamma/=v[2].w();
+                    float sum =1.0/(alpha+beta+gamma);
+                    alpha*=sum;
+                    beta*=sum;
+                    gamma*=sum;
+                    float z_interpolated = alpha * v[0].w()  + beta * v[1].w()  + gamma * v[2].w();
+                    //z_interpolated *= w_reciprocal;
+                    if (z_interpolated>=50||z_interpolated<0.1) continue;
+                    auto ind = (height-1-iy)*width + ix;
+                    
+                    auto hisdepth = light_depth_buf[cur_light_id][ind];
+                    
+                    if (0||z_interpolated<hisdepth){ //depth test
+                        
+                        light_depth_buf[cur_light_id][ind]=z_interpolated;
+                        
+                    }
+                }
+            }
+        }
+    }
 }
 
 
@@ -554,13 +766,14 @@ void rst::rasterizer::rasterize_t(const Triangle& t, const std::array<Eigen::Vec
                     alpha*=sum;
                     beta*=sum;
                     gamma*=sum;
-                    float z_interpolated = alpha * v[0].z()  + beta * v[1].z()  + gamma * v[2].z();
+                    float z_interpolated = alpha * v[0].w()  + beta * v[1].w()  + gamma * v[2].w();
                     //z_interpolated *= w_reciprocal;
+                    if (z_interpolated>=50||z_interpolated<0.1) continue;
                     auto ind = (height-1-iy)*width + ix;
                     
                     auto hisdepth = depth_buf[backbufidx][ind];
                     
-                    if (z_interpolated<hisdepth){ //depth test
+                    if (0||z_interpolated<hisdepth){ //depth test
                         
                         //SPY("shading");
                         
@@ -587,6 +800,7 @@ void rst::rasterizer::rasterize_t(const Triangle& t, const std::array<Eigen::Vec
                         //Vector3f pixel_color(255,255,255); 
                         //g_buf[ind]=payload;
                         pixel_color= fragment_shader(payload);
+                        
                         frame_buf[backbufidx][ind] = pixel_color;
                         //set_pixel({ix,iy}, pixel_color);
                     }
@@ -841,7 +1055,7 @@ void rst::rasterizer::clear(rst::Buffers buff)
         //std::fill(depth_buf[backbufidx].begin(), depth_buf[backbufidx].end(), std::numeric_limits<float>::infinity());
     }
     triangle_buf.clear();
-    world_pos_buf.clear();
+    view_pos_buf.clear();
 }
 
 rst::rasterizer::rasterizer(int w, int h) : width(w), height(h)
@@ -853,6 +1067,13 @@ rst::rasterizer::rasterizer(int w, int h) : width(w), height(h)
     g_buf.resize(w*h);
     texture = std::nullopt;
     
+
+}
+
+void rst::rasterizer::AddLight(const Light& light){
+    lights.push_back(light);
+    light_depth_buf.push_back(std::vector<float>());
+    light_depth_buf[light_depth_buf.size()-1].resize(width*height);
 }
 
 void rst::rasterizer::InitThreads(){
@@ -860,7 +1081,7 @@ void rst::rasterizer::InitThreads(){
     return;
     auto step = width*height/threadscnt;
     for (int i=0;i<width*height;i+=step){
-        gbufthreads.emplace_back(&rst::rasterizer::gbufshadingthread,this,i,std::min(i+step,width*height));
+        renderthreads.emplace_back(&rst::rasterizer::gbufshadingthread,this,i,std::min(i+step,width*height));
     }
 }
 

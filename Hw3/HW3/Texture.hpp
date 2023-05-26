@@ -24,7 +24,7 @@ public:
 
     int width, height;
 
-    Eigen::Vector3f getColor(float u, float v,bool linear=true)
+    Eigen::Vector3f getColor(float u, float v,bool linear=false)
     {
         if(linear){
             return getColor_linear(u, v);

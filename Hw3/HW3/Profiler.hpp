@@ -32,14 +32,14 @@ public:
     }
     static void PrintInfo(){
         for (auto& i: timer_){
-            printf("%s: %.6f ms/frm | ",i.first.c_str(),i.second*1000/Frm_cnter_ );
+            //printf("%s: %.6f ms/frm | ",i.first.c_str(),i.second*1000/Frm_cnter_ );
  
         }
         // for (auto& i: cnter_){
         //     printf("%s: %.6f calls/frm | ",i.first.c_str(),1.0*i.second/Frm_cnter_ );
  
         // }
-        printf("\n");
+        //printf("\r");
         if (std::chrono::duration<double>(std::chrono::steady_clock::now()-last_time_).count()>1)
             Clear();
     }
