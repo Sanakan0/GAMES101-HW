@@ -7,7 +7,7 @@
 #include <opencv2/opencv.hpp>
 #include <math.h>
 #include "Profiler.hpp"
-
+#include <random>
 rst::pos_buf_id rst::rasterizer::load_positions(const std::vector<Eigen::Vector3f> &positions)
 {
     auto id = get_next_id();
@@ -259,6 +259,10 @@ void rst::rasterizer::UpdateLightPass(){
             shadowon^=1;
             switchbtn=0;
         }
+        if (pcssbtn){
+            pcsson^=1;
+            pcssbtn=0;
+        }
     }
 
     shadow_triangle_buf.clear();
@@ -397,7 +401,7 @@ void rst::rasterizer::multidraw(std::vector<Triangle *> &TriangleList) {
         {
             vert.x() = 0.5*width*(vert.x()+1.0);
             vert.y() = 0.5*height*(vert.y()+1.0);
-            vert.z() = vert.z() * f1 + f2;
+            vert.z() = vert.z();
         }
 
         for (int i = 0; i < 3; ++i)
@@ -636,22 +640,33 @@ void rst::rasterizer::rasterize_shadowmap(const std::array<Eigen::Vector4f, 3>& 
                 if (!flag){
                     
                     //SPY("flag");
+                    // auto[alpha, beta, gamma] = computeBarycentric2D(cnter.x(), cnter.y(), &v[0]);
+                    // alpha/=v[0].w();
+                    // beta/=v[1].w();
+                    // gamma/=v[2].w();
+                    // float sum =1.0/(alpha+beta+gamma);
+                    // alpha*=sum;
+                    // beta*=sum;
+                    // gamma*=sum;
+                    // float z_interpolated = alpha * v[0].w()  + beta * v[1].w()  + gamma * v[2].w();
+                    // //z_interpolated *= w_reciprocal;
+                    // if (z_interpolated>=50||z_interpolated<0.1) continue;
+
+
                     auto[alpha, beta, gamma] = computeBarycentric2D(cnter.x(), cnter.y(), &v[0]);
-                    alpha/=v[0].w();
-                    beta/=v[1].w();
-                    gamma/=v[2].w();
                     float sum =1.0/(alpha+beta+gamma);
                     alpha*=sum;
                     beta*=sum;
                     gamma*=sum;
-                    float z_interpolated = alpha * v[0].w()  + beta * v[1].w()  + gamma * v[2].w();
+                    float z_interpolated = alpha * v[0].z()  + beta * v[1].z()  + gamma * v[2].z();
                     //z_interpolated *= w_reciprocal;
-                    if (z_interpolated>=50||z_interpolated<0.1) continue;
+                    if (z_interpolated>=1||z_interpolated<=-1) continue;
+
                     auto ind = (height-1-iy)*width + ix;
                     
                     auto hisdepth = light_depth_buf[cur_light_id][ind];
                     
-                    if (0||z_interpolated<hisdepth){ //depth test
+                    if (z_interpolated<hisdepth){ //depth test
                         
                         light_depth_buf[cur_light_id][ind]=z_interpolated;
                         
@@ -662,6 +677,13 @@ void rst::rasterizer::rasterize_shadowmap(const std::array<Eigen::Vector4f, 3>& 
     }
 }
 
+static float random_f(){
+    static std::random_device rd;
+    static thread_local std::mt19937 mt(rd());
+    std::uniform_real_distribution<float> dist(0.0, 1.0);
+    //SPY("RANDOM");
+    return dist(mt);
+}
 
 void rst::rasterizer::rasterize_t(const Triangle& t, const std::array<Eigen::Vector3f, 3>& view_pos,int xmin,int ymin,int xmax,int ymax){
     //SPY("RAST");
@@ -797,6 +819,8 @@ void rst::rasterizer::rasterize_t(const Triangle& t, const std::array<Eigen::Vec
                         auto interpolated_shadingcoords=alpha*view_pos[0] + beta*view_pos[1]+gamma*view_pos[2];
                         fragment_shader_payload payload( interpolated_color, interpolated_normal.normalized(), interpolated_texcoords, texture ? &*texture : nullptr);
                         payload.view_pos = interpolated_shadingcoords;
+                        
+           
                         //Vector3f pixel_color(255,255,255); 
                         //g_buf[ind]=payload;
                         pixel_color= fragment_shader(payload);
@@ -1036,6 +1060,7 @@ void rst::rasterizer::set_model(const Eigen::Matrix4f& m)
 void rst::rasterizer::set_view(const Eigen::Matrix4f& v)
 {
     view = v;
+    invview=v.inverse();
 }
 
 void rst::rasterizer::set_projection(const Eigen::Matrix4f& p)

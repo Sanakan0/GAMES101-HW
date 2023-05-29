@@ -31,9 +31,13 @@ public:
         
     }
     static void PrintInfo(){
+        static int cnt=0;
+        if(cnt) printf("\033[%dF",cnt);
+        cnt=0;
         for (auto& i: timer_){
-            //printf("%s: %.6f ms/frm | ",i.first.c_str(),i.second*1000/Frm_cnter_ );
- 
+            printf("\033[2K");
+            printf("%s: %.6f ms/frm |\n",i.first.c_str(),i.second*1000/Frm_cnter_ );
+            ++cnt;
         }
         // for (auto& i: cnter_){
         //     printf("%s: %.6f calls/frm | ",i.first.c_str(),1.0*i.second/Frm_cnter_ );

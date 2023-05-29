@@ -127,14 +127,20 @@ namespace rst
         bool msaa_sw=false;
         float fps=0;
         Eigen::Matrix4f model;
-        Eigen::Matrix4f view;
+        Eigen::Matrix4f view,invview;
         Eigen::Matrix4f projection,lightprojection;
         int width, height;
         bool shadowon=false;
         bool switchbtn=false;
+        bool pcsson=false;
+        bool pcssbtn=false;
         void switchshadow(){
             std::unique_lock<std::mutex> lock(sw_m);
             switchbtn=true;
+        }
+        void switchpcss(){
+            std::unique_lock<std::mutex> lock(sw_m);
+            pcssbtn=true;
         }
     private:
         void draw_line(Eigen::Vector3f begin, Eigen::Vector3f end);

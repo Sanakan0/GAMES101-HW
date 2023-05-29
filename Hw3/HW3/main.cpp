@@ -11,6 +11,7 @@
 #include "FpsPrinter.hpp"
 #include "Profiler.hpp"
 #include <thread>
+#include <random>
 Eigen::Matrix4f get_view_matrix(Eigen::Vector3f eye_pos)
 {
     Eigen::Matrix4f view = Eigen::Matrix4f::Identity();
@@ -170,6 +171,33 @@ Eigen::Vector3f texture_fragment_shader(const fragment_shader_payload& payload)
     return result_color * 255.f;
 }
 
+float random_f(){
+    static std::random_device rd;
+    static std::mt19937 mt(rd());
+    static std::uniform_real_distribution<float> dist(0.0, 1.0);
+    //SPY("RANDOM");
+    return dist(mt);
+}
+
+
+inline uint32_t xorshf32() {          //period 2^96-1
+    static thread_local uint32_t x=998244353;
+
+	x ^= x << 13;
+	x ^= x >> 17;
+	x ^= x << 5;
+	return x;
+}
+
+inline uint64_t xorshf64() {          //period 2^96-1
+    static thread_local uint64_t x=998244353;
+
+	x ^= x >> 12;
+	x ^= x << 25;
+	x ^= x >> 27;
+	return x*0x2545F4914F6CDD1DULL;
+}
+
 
 Eigen::Vector3f phong_fragment_shader(const fragment_shader_payload& payload)
 {
@@ -212,7 +240,7 @@ Eigen::Vector3f phong_fragment_shader(const fragment_shader_payload& payload)
     auto& ltmp = ras.getlights();
     auto& smap = ras.getshadowmap();
 
-    const float bias = 0.7;
+    const float bias = 0.00005;
     for (int i=0;i<ltmp.size();++i)
     {
         // TODO: For each light source in the code, calculate what the *ambient*, *diffuse*, and *specular* 
@@ -233,63 +261,104 @@ Eigen::Vector3f phong_fragment_shader(const fragment_shader_payload& payload)
         }
 
         auto tmpp=Vector4f(point.x(),point.y(),point.z(),1);
-        Vector4f ndcp= ras.lightprojection*ltmp[i].mat*ras.view.inverse()*tmpp;
+        Vector4f ndcp= ras.lightprojection*ltmp[i].mat*ras.invview*tmpp;
 
         ndcp.x()/=ndcp.w();
         ndcp.y()/=ndcp.w();
+        ndcp.z()/=ndcp.w();
         ndcp.x() = 0.5*ras.width*(ndcp.x()+1.0);
         ndcp.y() = 0.5*ras.height*(ndcp.y()+1.0);
-        const static int mvx[]={-1,0,1,-1,0,1,-1,0,1};
-        const static int mvy[]={-1,-1,-1,0,0,0,1,1,1};
         
-        if (0<=ndcp.x()&&ndcp.x()<=ras.width&&0<=ndcp.y()&&ndcp.y()<=ras.height){
-            if (ndcp.w()>=0.1){
-                int iy = std::min((int)ndcp.y(),ras.height-1);
-                int ix = std::min((int)ndcp.x(),ras.width-1);
-                int testsz=63;
-                float dblocker=0;
-                int blockercnt=0;
-                for (int j=-testsz/2;j<testsz-testsz/2;++j){
-                    for (int k=-testsz/2;k<testsz-testsz/2;++k){
-                        int ny=iy+j;
-                        int nx=ix+k;
-                        auto ind = (ras.height-1-ny)*ras.width + nx;
-                        if (ind<0||ind>=smap[i].size()) continue;
-                        
-                        auto sample = smap[i][ind];
+        
+        if (0<=ndcp.x()&&ndcp.x()<=ras.width&&0<=ndcp.y()&&ndcp.y()<=ras.height&&ndcp.w()>=0.1){
+            int iy = std::min((int)ndcp.y(),ras.height-1);
+            int ix = std::min((int)ndcp.x(),ras.width-1);
 
-                        if (sample+bias<=ndcp.w()){
-                            dblocker+=sample;
-                            blockercnt++;
-                        }
-                        
+            int testsz=63;
+            float dblocker=1;
+            float dreceiver=1;
+            int blockercnt=0;
+            
+            int samplecnt=42;
+            if (ras.pcsson){
+                //SPY("blockerTest");
+                auto tmpdiv=testsz/(double)UINT32_MAX;
+                for (int j=0;j<samplecnt;++j){
+                    auto tmp=xorshf64();
+                    int rx=ix+(tmp>>32)*tmpdiv-(testsz>>1);
+                    int ry=iy+(tmp%UINT32_MAX)*tmpdiv-(testsz>>1);
+                    auto ind = (ras.height-1-ry)*ras.width + rx;
+                    if (ind<0||ind>=smap[i].size()) continue;
+                    
+                    auto sample = smap[i][ind];
+                    auto depth = -10.0/(sample*(49.9)-(50.1));//ndcz 2 -z
+                    if (sample+bias<=ndcp.z()){
+                        dblocker+=depth;
+                        blockercnt++;
                     }
                 }
-                auto dreceiver =  ndcp.w();
+                
+                // for (int j=-testsz/2;j<testsz-testsz/2;j+=4){
+                //     for (int k=-testsz/2;k<testsz-testsz/2;k+=4){
+                //         //if (rseed=xorshf32(rseed);rseed>0.9) continue;
+                //         int ny=iy+j;
+                //         int nx=ix+k;
+                //         auto ind = (ras.height-1-ny)*ras.width + nx;
+                //         if (ind<0||ind>=smap[i].size()) continue;
+                        
+                //         auto sample = smap[i][ind];
+
+                //         if (sample+bias<=ndcp.w()){
+                //             dblocker+=sample;
+                //             blockercnt++;
+                //         }
+                        
+                //     }
+                // }
+
+
+                dreceiver =  ndcp.w();
                 dblocker/=blockercnt;
 
-
-                int filtersz=std::max(1,int((dreceiver - dblocker)*64/dblocker));
-                for (int j=-filtersz/2;j<filtersz-filtersz/2;++j){
-                    for (int k=-filtersz/2;k<filtersz-filtersz/2;++k){
-                        int ny=iy+j;
-                        int nx=ix+k;
-                        auto ind = (ras.height-1-ny)*ras.width + nx;
-                        if (ind<0||ind>=smap[i].size()) continue;
-                        auto sample = smap[i][ind];
-                        if (sample+bias<=ndcp.w()){
-                            result_color=result_color+ambient*1.0/(filtersz*filtersz);
-                        }else{
-                            result_color=result_color+(ambient+diffuse+specular)*1.0/(filtersz*filtersz);
-                        }
+            }
+            //SPY("Conv");
+            int filtersz=std::max(1,int((dreceiver - dblocker)*125/dblocker));
+            auto ads=ambient+diffuse+specular;
+            auto fsz2=filtersz*filtersz;
+            for (int j=-filtersz/2;j<filtersz-filtersz/2;++j){
+                for (int k=-filtersz/2;k<filtersz-filtersz/2;++k){
+                    int ny=iy+j;
+                    int nx=ix+k;
+                    auto ind = (ras.height-1-ny)*ras.width + nx;
+                    if (ind<0||ind>=smap[i].size()) continue;
+                    auto sample = smap[i][ind];
+                    if (sample+bias<=ndcp.z()){
+                        result_color=result_color+ambient/(fsz2);
+                    }else{
+                        result_color=result_color+ads/(fsz2);
                     }
                 }
-             
-
-
-                
-                
             }
+            // samplecnt=filtersz;
+           
+            // for (int j=0;j<samplecnt;++j){
+            //     auto tmp=xorshf64();
+            //     int rx=ix+(tmp>>32)/(double)UINT32_MAX*filtersz-filtersz/2;
+            //     int ry=iy+(tmp%UINT32_MAX)/(double)UINT32_MAX*filtersz-filtersz/2;
+            //     auto ind = (ras.height-1-ry)*ras.width + rx;
+            //     if (ind<0||ind>=smap[i].size()) continue;
+            //     auto sample = smap[i][ind];
+            //         if (sample+bias<=ndcp.w()){
+            //             result_color=result_color+ambient/(samplecnt);
+            //         }else{
+            //             result_color=result_color+(ads)/(samplecnt);
+            //         }
+            // }
+
+
+                
+                
+            
             
         }    
     }
@@ -504,7 +573,7 @@ void RenderThread(){
             r.UpdateLightPass();
             r.lightprojection=get_projection_matrix(30, 1, 0.1, 50);
             r.set_projection(get_projection_matrix(45.0, 1, 0.1, 50));
-            std::cout << angle2 << "     \r";
+            // std::cout << angle2 << "     \r";
             //r.draw(pos_id, ind_id, col_id, rst::Primitive::Triangle);
             // r.draw(TriangleList);
             r.multidraw(TriangleList);
@@ -516,8 +585,8 @@ void RenderThread(){
             m1.block<3,3>(0,0) = 2.5*quatb.toRotationMatrix();
             m1.block<3,1>(0,3) = Vector3f(2,0,0);
             r.set_model(m1);
-            //r.multidraw(TriangleList);
-            //r.AddTriangleForShadow(TriangleList);
+            r.multidraw(TriangleList);
+            r.AddTriangleForShadow(TriangleList);
             // r.draw(TriangleList);
             {
                 SPY("Rasterization");
@@ -562,6 +631,10 @@ void CVshowthread(){
 
                 
                 switch(key){
+                    case 'p':
+                        r.switchpcss();
+                        break;
+
                     case 'o':
                         r.switchshadow();
                         break;
