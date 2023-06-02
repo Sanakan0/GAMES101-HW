@@ -273,13 +273,18 @@ Eigen::Vector3f phong_fragment_shader(const fragment_shader_payload& payload)
         if (0<=ndcp.x()&&ndcp.x()<=ras.width&&0<=ndcp.y()&&ndcp.y()<=ras.height&&ndcp.w()>=0.1){
             int iy = std::min((int)ndcp.y(),ras.height-1);
             int ix = std::min((int)ndcp.x(),ras.width-1);
+            
 
-            int testsz=63;
+            int lightsz=5000;
+            
+
+            int testsz=lightsz/r;
+            testsz=63;
             float dblocker=1;
             float dreceiver=1;
             int blockercnt=0;
             
-            int samplecnt=42;
+            int samplecnt=20;
             if (ras.pcsson){
                 //SPY("blockerTest");
                 auto tmpdiv=testsz/(double)UINT32_MAX;
@@ -324,7 +329,7 @@ Eigen::Vector3f phong_fragment_shader(const fragment_shader_payload& payload)
             //SPY("Conv");
             int filtersz=std::max(1,int((dreceiver - dblocker)*125/dblocker));
             auto ads=ambient+diffuse+specular;
-            auto fsz2=filtersz*filtersz;
+            int cntshadow=0,cntlight=0;
             for (int j=-filtersz/2;j<filtersz-filtersz/2;++j){
                 for (int k=-filtersz/2;k<filtersz-filtersz/2;++k){
                     int ny=iy+j;
@@ -333,12 +338,14 @@ Eigen::Vector3f phong_fragment_shader(const fragment_shader_payload& payload)
                     if (ind<0||ind>=smap[i].size()) continue;
                     auto sample = smap[i][ind];
                     if (sample+bias<=ndcp.z()){
-                        result_color=result_color+ambient/(fsz2);
+                        //result_color=result_color+ambient/(fsz2);
+                        cntshadow++;
                     }else{
-                        result_color=result_color+ads/(fsz2);
+                        cntlight++;
                     }
                 }
             }
+            result_color+=ambient*(double)cntshadow/(cntshadow+cntlight)+ads*(double)cntlight/(cntshadow+cntlight);
             // samplecnt=filtersz;
            
             // for (int j=0;j<samplecnt;++j){

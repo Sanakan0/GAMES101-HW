@@ -305,13 +305,17 @@ void rst::rasterizer::AddTriangleForShadow(std::vector<Triangle *> &TriangleList
                 vec.x()/=vec.w();
                 vec.y()/=vec.w();
                 vec.z()/=vec.w();
-                if (vec.w()<0.1) flg=1;
+                if (vec.w()==0) flg=1;
                 if (vec.z()<-1) cnta++;
                 if (vec.z()>1) cntb++;
             }
-            if (cnta==3||cntb==3||flg){ //cull triangles
+            if (cnta==3||cntb==3||flg){ //clip triangles Z
                 continue;
-            } 
+            }
+         
+
+
+
             //back cull use ndc coord
             auto veca = (v[1]-v[0]).head<3>();
             auto vecb = (v[2]-v[0]).head<3>();
