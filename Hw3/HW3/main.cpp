@@ -4,6 +4,7 @@
 
 #include "global.hpp"
 #include "rasterizer.hpp"
+#include "Postprocess.hpp"
 #include "Triangle.hpp"
 #include "Shader.hpp"
 #include "Texture.hpp"
@@ -113,7 +114,7 @@ float fastpow(float x,int n){
 
 
 rst::rasterizer r(700, 700);
-
+Postprocesser pp(r);
 
 Eigen::Vector3f texture_fragment_shader(const fragment_shader_payload& payload)
 {
@@ -598,6 +599,7 @@ void RenderThread(){
             {
                 SPY("Rasterization");
                 r.multiras();
+                pp.BloomPass();
             }
             
             //std::this_thread::sleep_for(std::chrono::milliseconds(500));
@@ -628,7 +630,7 @@ void CVshowthread(){
             ss<<"fps: "<<fps;
             auto txt = ss.str();
             cv::putText(image, txt, cv::Point2f(50,50), cv::FONT_HERSHEY_DUPLEX, 1.0, CV_RGB(255, 122, 22),2);
-            Profiler::PrintInfoOnMat(image);
+            //Profiler::PrintInfoOnMat(image);
             cv::imshow("image", image);
             //cv::imwrite(filename, image);
             
@@ -638,6 +640,10 @@ void CVshowthread(){
 
                 
                 switch(key){
+                    case 'b':
+                        pp.switchbloom();
+                        break;
+
                     case 'p':
                         r.switchpcss();
                         break;

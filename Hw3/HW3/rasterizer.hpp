@@ -108,7 +108,8 @@ namespace rst
 
         void multidraw(std::vector<Triangle *> &TriangleList);
         void AddTriangleForShadow(std::vector<Triangle *> &TriangleList);
-        std::vector<Eigen::Vector3f>& frame_buffer() { return frame_buf[backbufidx^1]; }
+        std::vector<Eigen::Vector3f>& active_frame_buffer() { return frame_buf[backbufidx]; }
+        
         void Swapbuffer(){
             std::lock_guard<std::mutex> lock(frmmutex);
             backbufidx^=1;

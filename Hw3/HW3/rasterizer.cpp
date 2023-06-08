@@ -454,7 +454,7 @@ void rst::rasterizer::shadingthread(int xminp,int yminp,int xmaxp,int ymaxp){
         }
 
         int st = (height-1-std::min(ymax,height-1))*width + xmin;
-        int ed = (height-1-ymin)*width + std::min(xmax,width-1);
+        int ed = (height-1-ymin)*width + std::min(xmax,width-1) + 1;
         if(cur_light_id==-1){ // shading pass
             //clear buf
             
